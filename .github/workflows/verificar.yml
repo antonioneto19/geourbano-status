@@ -1,0 +1,51 @@
+# Aviso de queda do GeoUrbano: a cada 15 min confere o app, o site e o certificado do app. Se falhar, o GitHub manda
+# e-mail para quem cuida deste repositório (configuração padrão: "falhas de workflow" por e-mail).
+name: Verificar o app
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+    - cron: "17 6 1 * *"   # mensal: sinal de vida (repositório público sem atividade por 60 dias tem o agendamento desligado)
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  verificar:
+    if: github.event.schedule != '17 6 1 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: App responde (https://app.geourbano.ia.br/saude)
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 https://app.geourbano.ia.br/saude || true)
+            [ "$code" = "200" ] && break
+            sleep 20
+          done
+          echo "app /saude: HTTP $code"
+          [ "$code" = "200" ]
+      - name: Site responde (https://www.geourbano.ia.br)
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 https://www.geourbano.ia.br/ || true)
+            [ "$code" = "200" ] && break
+            sleep 20
+          done
+          echo "site: HTTP $code"
+          [ "$code" = "200" ]
+      - name: Certificado do app vale por mais de 14 dias
+        run: |
+          fim=$(echo | openssl s_client -servername app.geourbano.ia.br -connect app.geourbano.ia.br:443 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2)
+          dias=$(( ( $(date -d "$fim" +%s) - $(date +%s) ) / 86400 ))
+          echo "certificado vence em $dias dias ($fim)"
+          [ "$dias" -gt 14 ]
+  sinal-de-vida:
+    if: github.event.schedule == '17 6 1 * *'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          date -u +%Y-%m-%d > ultimo-sinal-de-vida.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ultimo-sinal-de-vida.txt
+          git commit -m "sinal de vida mensal" && git push
